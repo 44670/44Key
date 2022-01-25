@@ -1,2 +1,2 @@
 # 44Key
-A simple, cheap, secure USB Key for SSH authentication, costs &lt; $5
+A simple, cheap, and somewhat secure USB Key for SSH authentication, costs &lt; $5
