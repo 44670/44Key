@@ -1,7 +1,10 @@
 
+#pragma once
 
-// Uncomment this to enable the LED indicator
-//#define PIN_LED 2
+#define BOARD_OPENLUAT_ESP32C3
 
-// Uncomment this to enable the confirm button
-//#define PIN_BUTTON_CONFIRM 3
+#ifdef BOARD_OPENLUAT_ESP32C3
+#define PIN_LED (12)
+#define PIN_BTN_CONFIRM (9)
+#define LED_ACTIVE (1)
+#endif

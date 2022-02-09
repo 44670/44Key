@@ -1,7 +1,7 @@
 #include "ed25519.h"
 #include "hal.h"
-#include "sha2.h"
 #include "memzero.h"
+#include "sha2.h"
 
 #define MAX_CMD_ARGS 8
 const char *cmdArgs[MAX_CMD_ARGS];
@@ -12,12 +12,12 @@ uint8_t signResultBuf[256];
 
 /* Secrets */
 uint8_t deviceSecretInfo[HAL_SECRET_INFO_SIZE];
+uint8_t deviceSecretSeed[32];
 uint8_t userSecretSeedBuf[32];
 uint8_t secretKeyBuf[32];
 /* End of secrets */
 
 int isUserSeedSet = 0;
-
 
 int decodeHexDigit(char ch) {
   if (ch >= '0' && ch <= '9') return ch - '0';
@@ -49,10 +49,35 @@ int tryDecodeHexBuf(const char *hex, uint8_t *dst, size_t dstLen) {
   return dstPos;
 }
 
-void clearSecretKey() { 
-  memzero(secretKeyBuf, sizeof(secretKeyBuf));
+void clearSecretKey() { memzero(secretKeyBuf, sizeof(secretKeyBuf)); }
+
+void clearDeviceSecretSeed() {
+  memzero(deviceSecretSeed, sizeof(deviceSecretSeed));
 }
 
+// deviceSecretSeed := SHA256(deviceSecretInfo[:1024] + "44KeyDeviceSecretSeed!")
+int deriveDeviceSecretSeed() {
+  HAL_ASSERT(HAL_SECRET_INFO_SIZE >= 1024);
+  clearDeviceSecretSeed();
+  HAL_ASSERT(halReadSecretInfo(deviceSecretInfo) == 0);
+  if (deviceSecretInfo[HAL_SECRET_INFO_SIZE - 2] != 0x55 ||
+      deviceSecretInfo[HAL_SECRET_INFO_SIZE - 1] != 0xAA) {
+    return -1;
+  }
+
+  SHA256_CTX ctx = {0};
+  sha256_Init(&ctx);
+  // Use first 1024 bytes of deviceSecretInfo to generate deviceSecretSeed
+  sha256_Update(&ctx, deviceSecretInfo, 1024);
+  memzero(deviceSecretInfo, HAL_SECRET_INFO_SIZE);
+  const char *appendStr = "44KeyDeviceSecretSeed!";
+  sha256_Update(&ctx, (uint8_t*) appendStr, strlen(appendStr));
+  sha256_Final(&ctx, deviceSecretSeed);
+  return 0;
+}
+
+// secretKeyWithUsage := SHA256(usage + userSecretSeed + usage +
+// "44KeyGenerateSecretKeyForUsage!")
 int deriveSecretKeyWithUsage(const char *usage) {
   SHA256_CTX ctx = {0};
   clearSecretKey();
@@ -66,13 +91,13 @@ int deriveSecretKeyWithUsage(const char *usage) {
   sha256_Update(&ctx, (uint8_t *)usage, strlen(usage));
   sha256_Update(&ctx, userSecretSeedBuf, sizeof(userSecretSeedBuf));
   sha256_Update(&ctx, (uint8_t *)usage, strlen(usage));
-  const char* appendStr = "44KeyGenerateSecretKeyForUsage!";
+  const char *appendStr = "44KeyGenerateSecretKeyForUsage!";
   sha256_Update(&ctx, (uint8_t *)appendStr, strlen(appendStr));
   sha256_Final(&ctx, secretKeyBuf);
   return 0;
 }
 
-// Prepare secret key for usage
+// Prepare secret key by usage
 int cmdPrepareSecretKey(const char *usage, const char *ensureUsagePrefix) {
   if (!isUserSeedSet) {
     halUartWriteStr("+ERR,user seed not set\r\n");
@@ -94,6 +119,7 @@ int cmdPrepareSecretKey(const char *usage, const char *ensureUsagePrefix) {
   return 0;
 }
 
+// Get public key by usage
 void cmdPubKey() {
   if (cmdPrepareSecretKey(cmdArgs[1], "ed25519-ssh-") != 0) {
     return;
@@ -105,7 +131,12 @@ void cmdPubKey() {
   halUartWriteStr("\n");
 }
 
+// Sign data with secret key by usage
 void cmdSign() {
+  if (halRequestUserConsent() != 0) {
+    halUartWriteStr("+ERR,aborted by user\n");
+    return;
+  }
   if (cmdPrepareSecretKey(cmdArgs[1], "ed25519-ssh-") != 0) {
     return;
   }
@@ -122,7 +153,12 @@ void cmdSign() {
   halUartWriteStr("\n");
 }
 
+// Format device: regenerate deviceSecretInfo
 void cmdFormat() {
+  if (halRequestUserConsent() != 0) {
+    halUartWriteStr("+ERR,aborted by user\n");
+    return;
+  }
   if (isUserSeedSet) {
     halUartWriteStr("+ERR,user seed already set\n");
     return;
@@ -132,7 +168,7 @@ void cmdFormat() {
     halUartWriteStr("+ERR,invalid data\n");
     return;
   }
-  
+
   memzero(deviceSecretInfo, HAL_SECRET_INFO_SIZE);
 
   for (int i = 0; i < 32; i++) {
@@ -153,7 +189,13 @@ void cmdFormat() {
   esp_restart();
 }
 
+// userSecretSeed := SHA256(pwdHash + deviceSecretSeed + pwdHash +
+// "44KeyGenerateUserSecretSeedByPassword!")
 void cmdUserSeed() {
+  if (halRequestUserConsent() != 0) {
+    halUartWriteStr("+ERR,aborted by user\n");
+    return;
+  }
   if (isUserSeedSet) {
     halUartWriteStr("+ERR,user seed already set\n");
     return;
@@ -163,26 +205,48 @@ void cmdUserSeed() {
     halUartWriteStr("+ERR,invalid data\n");
     return;
   }
-  memzero(deviceSecretInfo, HAL_SECRET_INFO_SIZE);
-  HAL_ASSERT(halReadSecretInfo(deviceSecretInfo) == 0);
-  if (deviceSecretInfo[HAL_SECRET_INFO_SIZE - 2] != 0x55 || deviceSecretInfo[HAL_SECRET_INFO_SIZE - 1] != 0xAA) {
+  if (deriveDeviceSecretSeed() < 0) {
     halUartWriteStr("+ERR,not formatted\n");
     return;
   }
+  halLockSecretInfo();
   SHA256_CTX ctx = {0};
   sha256_Init(&ctx);
   sha256_Update(&ctx, dataBuf, 32);
-  sha256_Update(&ctx, deviceSecretInfo, HAL_SECRET_INFO_SIZE);
-  memzero(deviceSecretInfo, HAL_SECRET_INFO_SIZE);
+  sha256_Update(&ctx, deviceSecretSeed, sizeof(deviceSecretSeed));
+  clearDeviceSecretSeed();
   sha256_Update(&ctx, dataBuf, 32);
-  const char* appendStr = "44KeyGenerateUserSecretSeedByPassword!";
+  const char *appendStr = "44KeyGenerateUserSecretSeedByPassword!";
   sha256_Update(&ctx, (uint8_t *)appendStr, strlen(appendStr));
   sha256_Final(&ctx, userSecretSeedBuf);
   isUserSeedSet = 1;
   halUartWriteStr("+OK\n");
 }
 
+// webPwd := SHA256(secretKeyWithUsage(usage) + "44KeyGenerateWebPassword!")
+void cmdWebPwd() {
+  if (halRequestUserConsent() != 0) {
+    halUartWriteStr("+ERR,aborted by user\n");
+    return;
+  }
+  if (cmdPrepareSecretKey(cmdArgs[1], "webpwd-") != 0) {
+    return;
+  }
+  SHA256_CTX ctx = {0};
+  sha256_Init(&ctx);
+  sha256_Update(&ctx, secretKeyBuf, sizeof(secretKeyBuf));
+  clearSecretKey();
+  const char *appendStr = "44KeyGenerateWebPassword!";
+  sha256_Update(&ctx, (uint8_t *)appendStr, strlen(appendStr));
+  sha256_Final(&ctx, dataBuf);
+  halUartWriteStr("+OK,");
+  halUartWriteHexBuf(dataBuf, 32);
+  halUartWriteStr("\n");
+  return;
+}
+
 int app_main(void) {
+  isUserSeedSet = 0;
   halInit();
   halUartClearInput();
 
@@ -220,6 +284,8 @@ int app_main(void) {
       cmdSign();
     } else if (strcmp(cmdArgs[0], "+FORMAT") == 0) {
       cmdFormat();
+    } else if (strcmp(cmdArgs[0], "+WEBPWD") == 0) {
+      cmdWebPwd();
     } else {
       halUartWriteStr("+ERR,unknown command\n");
     }

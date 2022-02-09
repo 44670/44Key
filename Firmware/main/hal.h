@@ -1,4 +1,6 @@
 // HAL definitions for ESP-IDF (esp32-c3)
+#pragma once
+
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
@@ -35,6 +37,7 @@ void halAssertFailed(const char *file, int line, const char *msg) {
 
 #define HAL_ASSERT(cond) (!!(cond) ? (void)0 : halAssertFailed(__FILENAME__, __LINE__, #cond))
 
+
 // Ensure that the random number generator is ready
 // TODO: panic if RNG is broken
 void halEnsureRandomReady() {
@@ -65,12 +68,17 @@ void halInit() {
       ESP_PARTITION_TYPE_ANY, ESP_PARTITION_TYPE_ANY, "secret_data");
   HAL_ASSERT(halSecretPartition != NULL);
   halEnsureRandomReady();
+  #ifdef PIN_LED
+  gpio_set_direction(PIN_LED, GPIO_MODE_OUTPUT);
+  gpio_set_level(PIN_LED, !LED_ACTIVE);
+  #endif
+  #ifdef PIN_BTN_CONFIRM
+  gpio_set_direction(PIN_BTN_CONFIRM, GPIO_MODE_INPUT);
+  gpio_set_pull_mode(PIN_BTN_CONFIRM, GPIO_PULLUP_ONLY);
+  gpio_set_level(PIN_BTN_CONFIRM, 1);
+  #endif
 }
 
-int halRequestUserConsent() {
-  // TODO: notify user with led and wait for button press
-  return 1;
-}
 
 void halLockChip() {
   // TODO: Lock chip
@@ -90,6 +98,7 @@ void halUartClearInput() {
 }
 
 int halUartReadLine(char *buffer, size_t max_length) {
+  memset(buffer, 0, max_length);
   char startByte = 0;
   int len = 0;
   while (1) {
@@ -145,6 +154,7 @@ int halUartWriteHexBuf(const uint8_t *buffer, size_t length) {
 }
 
 int halReadSecretInfo(uint8_t* dst) {
+  memset(dst, 0, HAL_SECRET_INFO_SIZE);
   if (halSecretPartition == NULL) {
     return -1;
   }
@@ -170,4 +180,42 @@ int halProgramSecretInfo(const uint8_t* src){
     return -1;
   }
   return 0;
+}
+
+
+int halLockSecretInfo() {
+  // TODO: disallow the secret info from being read until reset (if possible on current platform)
+  return 0;
+}
+
+int halRequestUserConsent() {
+  int ret = -1;
+  #ifdef PIN_BTN_CONFIRM
+    #ifdef PIN_LED
+      gpio_set_level(PIN_LED, LED_ACTIVE);
+    #endif
+    // Wait until button is not pressed
+    while (gpio_get_level(PIN_BTN_CONFIRM) == 0) {
+      vTaskDelay(100 / portTICK_PERIOD_MS);
+    }
+    int i = 0;
+    for (i = 0; i < 300; i++) {
+      vTaskDelay(100 / portTICK_PERIOD_MS);
+      // Is button pressed?
+      if (gpio_get_level(PIN_BTN_CONFIRM) == 0) {
+        vTaskDelay(1000 / portTICK_PERIOD_MS);
+        // Is button still pressed?
+        if (gpio_get_level(PIN_BTN_CONFIRM) == 0) {
+          ret = 0;
+          break;
+        }
+      }
+    }
+    #ifdef PIN_LED
+      gpio_set_level(PIN_LED, !LED_ACTIVE);
+    #endif
+    return ret;
+  #else
+    return 0;
+  #endif
 }
