@@ -7,4 +7,5 @@
 #define PIN_LED (12)
 #define PIN_BTN_CONFIRM (9)
 #define LED_ACTIVE (1)
+#else
 #endif
