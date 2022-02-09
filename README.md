@@ -15,11 +15,11 @@ PC Software: https://github.com/44670/44KeyTool
 # Getting Started
 1. Prepare a compatible hardware.
 
-Technically, any ESP32C3 boards are compatible. You may find one in a affordable price in aliexpress.
+Technically, any ESP32C3 boards are compatible. You may find one in affordable price in aliexpress.
 
 Hardware design is available at: https://oshwhub.com/44670/miniusbkey , if you want to build one by yourself.
 
-2. Compile and flash the firmware, ESP-IDF v5+ is recommended.
+2. Compile and flash the firmware, ESP-IDF v4.4+ is required.
 3. Download 44KeyTool and format your device.
 
 Format your device with command: `44KeyTool -port [your-serial-port] -format`, You can list the serial ports on Windows Device Manager or directly run `44KeyTool` without any arguments.
