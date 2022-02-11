@@ -3,3 +3,4 @@ build
 *.exe
 *.pem
 *secure*
+*.old
