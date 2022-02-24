@@ -133,7 +133,7 @@ void cmdPubKey() {
 
 // Sign data with secret key by usage
 void cmdSign() {
-  if (halRequestUserConsent() != 0) {
+  if (halRequestUserConsent("Sign") != 0) {
     halUartWriteStr("+ERR,aborted by user\n");
     return;
   }
@@ -155,7 +155,7 @@ void cmdSign() {
 
 // Format device: regenerate deviceSecretInfo
 void cmdFormat() {
-  if (halRequestUserConsent() != 0) {
+  if (halRequestUserConsent("Format device.") != 0) {
     halUartWriteStr("+ERR,aborted by user\n");
     return;
   }
@@ -192,7 +192,7 @@ void cmdFormat() {
 // userSecretSeed := SHA256(pwdHash + deviceSecretSeed + pwdHash +
 // "44KeyGenerateUserSecretSeedByPassword!")
 void cmdUserSeed() {
-  if (halRequestUserConsent() != 0) {
+  if (halRequestUserConsent("Login with password.") != 0) {
     halUartWriteStr("+ERR,aborted by user\n");
     return;
   }
@@ -225,7 +225,11 @@ void cmdUserSeed() {
 
 // webPwd := SHA256(secretKeyWithUsage(usage) + "44KeyGenerateWebPassword!")
 void cmdWebPwd() {
-  if (halRequestUserConsent() != 0) {
+  char prompt[128];
+  memset(prompt, 0, sizeof(prompt));
+  snprintf(prompt, sizeof(prompt), "Generate password: %s", cmdArgs[1]);
+
+  if (halRequestUserConsent(prompt) != 0) {
     halUartWriteStr("+ERR,aborted by user\n");
     return;
   }
@@ -249,6 +253,7 @@ int app_main(void) {
   isUserSeedSet = 0;
   halInit();
   halUartClearInput();
+  halShowMsg(isUserSeedSet ? "Connected." : "Waiting for connection..." );
 
   while (1) {
     memset(cmdBuf, 0, sizeof(cmdBuf));
@@ -289,6 +294,7 @@ int app_main(void) {
     } else {
       halUartWriteStr("+ERR,unknown command\n");
     }
+    halShowMsg(isUserSeedSet ? "Connected." : "Waiting for connection..." );
   }
   return 0;
 }
