@@ -11,6 +11,7 @@ uint8_t pubKeyBuf[32];
 uint8_t signResultBuf[256];
 
 /* Secrets */
+#define DEVICE_SECRET_USABLE_LEN (16)
 uint8_t deviceSecretInfo[HAL_SECRET_INFO_SIZE];
 uint8_t deviceSecretSeed[32];
 uint8_t userSecretSeedBuf[32];
@@ -73,6 +74,8 @@ int deriveDeviceSecretSeed() {
   const char *appendStr = "44KeyDeviceSecretSeed!";
   sha256_Update(&ctx, (uint8_t*) appendStr, strlen(appendStr));
   sha256_Final(&ctx, deviceSecretSeed);
+  // Set last 128 bits of deviceSecretSeed to 0
+  memzero(deviceSecretSeed + 16, 16);
   return 0;
 }
 
@@ -178,7 +181,7 @@ void cmdFormat() {
     for (int i = 0; i < HAL_SECRET_INFO_SIZE; i++) {
       deviceSecretInfo[i] ^= halRandomU32() & 0xFF;
     }
-    vTaskDelay(1000 / portTICK_PERIOD_MS);
+    halDelayMs(1000);
   }
   deviceSecretInfo[HAL_SECRET_INFO_SIZE - 2] = 0x55;
   deviceSecretInfo[HAL_SECRET_INFO_SIZE - 1] = 0xAA;
@@ -213,7 +216,7 @@ void cmdUserSeed() {
   SHA256_CTX ctx = {0};
   sha256_Init(&ctx);
   sha256_Update(&ctx, dataBuf, 32);
-  sha256_Update(&ctx, deviceSecretSeed, sizeof(deviceSecretSeed));
+  sha256_Update(&ctx, deviceSecretSeed, DEVICE_SECRET_USABLE_LEN);
   clearDeviceSecretSeed();
   sha256_Update(&ctx, dataBuf, 32);
   const char *appendStr = "44KeyGenerateUserSecretSeedByPassword!";
