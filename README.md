@@ -1,3 +1,5 @@
+![image](./media/hw.jpg)
+
 # 44Key
 A simple, cheap, and somewhat secure ed25519 USB Key for SSH authentication, costs &lt; $5
 

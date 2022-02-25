@@ -190,7 +190,7 @@ void halFBDrawStr(int x, int y, const char *str, uint16_t color) {
   }
 }
 
-void halLcdPrintf(int x, int y, uint16_t color, const char *fmt, ...) {
+void halFBPrintf(int x, int y, uint16_t color, const char *fmt, ...) {
   char buf[256];
   memset(buf, 0, sizeof(buf));
   va_list ap;
@@ -486,9 +486,30 @@ int halLockSecretInfo() {
 void halShowMsg(const char *msg) {
 #ifdef HAVE_LCD
   halFBFill(COLOR_BLACK);
-  halLcdPrintf(0, 0, COLOR_GREEN, "44Key");
-  halLcdPrintf(0, 8, COLOR_WHITE, msg);
+  halFBPrintf(0, 0, COLOR_GREEN, "44Key");
+  halFBPrintf(0, 8, COLOR_WHITE, msg);
   halLcdUpdateFB();
+#endif
+}
+
+int halWaitKey() {
+#ifdef PIN_BTN_CONFIRM
+  // Wait until button is released
+  while (gpio_get_level(PIN_BTN_CONFIRM) == 0) {
+    vTaskDelay(100 / portTICK_PERIOD_MS);
+  }
+  while (true) {
+    vTaskDelay(100 / portTICK_PERIOD_MS);
+    if (gpio_get_level(PIN_BTN_CONFIRM) == 0) {
+      vTaskDelay(100 / portTICK_PERIOD_MS);
+      if (gpio_get_level(PIN_BTN_CONFIRM) == 0) {
+        return 1;
+      }
+    }
+  }
+
+#else
+  return 0;
 #endif
 }
 

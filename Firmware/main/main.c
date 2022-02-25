@@ -2,6 +2,7 @@
 #include "hal.h"
 #include "memzero.h"
 #include "sha2.h"
+#include "bip39.h"
 
 #define MAX_CMD_ARGS 8
 const char *cmdArgs[MAX_CMD_ARGS];
@@ -156,6 +157,75 @@ void cmdSign() {
   halUartWriteStr("\n");
 }
 
+
+
+int convertKeyToBip39(const uint8_t *key, size_t keyLen, const char *wordList[], size_t wordListLen) {
+    if (keyLen % 4 != 0) {
+        return -1;
+    }
+    int keyBits = keyLen * 8;
+    int checkSumBits = keyBits / 32;
+    if (checkSumBits > 8) {
+        return -1;
+    }
+    int wordCount = (keyBits + checkSumBits) / 11;
+    if (wordListLen < wordCount) {
+        return -1;
+    }
+    uint32_t bitPool = 0;
+    int bitCnt = 0;
+    SHA256_CTX ctx = {0};
+    uint8_t hashResult[32] = {0};
+    sha256_Init(&ctx);
+    sha256_Update(&ctx, key, keyLen);
+    sha256_Final(&ctx, (uint8_t*) hashResult);
+    int keyPos = 0;
+    for (int i = 0; i < wordCount; i++) {
+        while (bitCnt < 11) {
+            if (keyPos >= keyLen) {
+                bitPool <<= 8;
+                bitPool |= hashResult[0];
+                bitCnt += 8;
+            }
+            bitPool <<= 8;
+            bitPool |= key[keyPos];
+            keyPos += 1;
+            bitCnt += 8;
+        }
+        uint32_t wordIdx = (bitPool >> (bitCnt - 11)) & 0x7FF;
+        bitCnt -= 11;
+        wordList[i] = bip39Words[wordIdx];
+    }
+
+    return wordCount;
+}
+
+#ifdef HAVE_LCD
+void showRecoverySeed() {
+  halFBFill(COLOR_BLACK);
+  halFBDrawStr(0, 0, "Device secret seed generated.\nYour ONLY chance to backup your device secret seed is now.\nPress the key to continue.",COLOR_WHITE);
+  halLcdUpdateFB();
+  halWaitKey();
+  deriveDeviceSecretSeed();
+  const char* worldList[30];
+  int wordCount = convertKeyToBip39(deviceSecretSeed, DEVICE_SECRET_USABLE_LEN, worldList, 30);
+  HAL_ASSERT(wordCount > 0);
+  int currentWord = 0;
+  while(1) {
+    halFBFill(COLOR_BLACK);
+    halFBPrintf(0, 0, COLOR_WHITE, "Secret seed(%d/%d):\n %s", currentWord + 1, wordCount, worldList[currentWord]);
+    halFBDrawStr(0, 32, "Write down on the paper, then press the key to continue.", COLOR_WHITE);
+    halLcdUpdateFB();
+    halWaitKey();
+    currentWord += 1;
+    if (currentWord >= wordCount) {
+      currentWord = 0;
+    }
+  }
+  
+
+}
+#endif
 // Format device: regenerate deviceSecretInfo
 void cmdFormat() {
   if (halRequestUserConsent("Format device.") != 0) {
@@ -188,9 +258,13 @@ void cmdFormat() {
 
   HAL_ASSERT(halProgramSecretInfo(deviceSecretInfo) == 0);
   halUartWriteStr("+OK\n");
+  #ifdef HAVE_LCD
+  showRecoverySeed();
+  #endif
   // Reboot
   esp_restart();
 }
+
 
 // userSecretSeed := SHA256(pwdHash + deviceSecretSeed + pwdHash +
 // "44KeyGenerateUserSecretSeedByPassword!")
